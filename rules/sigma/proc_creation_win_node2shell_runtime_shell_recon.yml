@@ -1,0 +1,75 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / process-creation (Windows: Sysmon EID 1, Security 4688, EDR)
+# CVE-2026-111497 (Node2Shell) — node.exe/bun.exe spawns cmd/PowerShell recon or download (N2S-21, DERIVED)
+# =====================================================================
+title: Node.js or Bun Server Process Spawns Shell Recon or Download Command - Windows (CVE-2026-111497)
+id: 5cb7e168-cbdd-4fd6-8a4e-72f86194a620
+status: experimental
+description: |
+    Windows variant of N2S-21: node.exe or bun.exe starting cmd.exe,
+    powershell.exe or pwsh.exe with a recon or download command, or starting
+    whoami.exe / curl.exe directly. Node's child_process.exec runs
+    'cmd.exe /d /s /c "<command>"' on Windows.
+
+    Provenance: N2S-21, DERIVED. The brief's command set is id, whoami,
+    uname, curl/wget. Windows translation (IONSEC): id and uname have no
+    Windows built-in; whoami and curl exist as whoami.exe / curl.exe; wget is
+    a Windows PowerShell 5.1 alias of Invoke-WebRequest (also iwr). The
+    public PoCs target Linux; this rule exists so a Windows-hosted Node estate
+    is not blind.
+
+    Scope: npm, yarn and pnpm run scripts through cmd.exe; the filter drops
+    the package-manager entry points (IONSEC tuning). Restrict
+    ParentCommandLine to your server entry points where you can.
+references:
+    - https://github.com/Arkango/CVE-2026-111497
+    - https://github.com/dimasma0305/CVE-2026-111497-POC
+    - https://www.imperva.com/blog/node2shell-from-brotli-data-to-remote-code-execution/
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.execution
+    - attack.t1059.003
+    - attack.t1059.001
+    - attack.discovery
+    - attack.t1033
+    - attack.command-and-control
+    - attack.t1105
+    - cve.2026-111497
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    sel_parent_runtime:
+        ParentImage|endswith:
+            - '\node.exe'
+            - '\bun.exe'
+    sel_shell_with_recon:
+        Image|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains:
+            - 'whoami'
+            - 'curl'
+            - 'wget'
+            - 'Invoke-WebRequest'
+            - 'iwr '
+    sel_direct_recon:
+        Image|endswith:
+            - '\whoami.exe'
+            - '\curl.exe'
+    filter_build_tooling:
+        ParentCommandLine|contains:
+            - 'npm-cli.js'
+            - 'npx-cli.js'
+            - 'yarn.js'
+            - 'yarn.cjs'
+            - 'pnpm.cjs'
+            - 'node-gyp'
+    condition: sel_parent_runtime and (sel_shell_with_recon or sel_direct_recon) and not filter_build_tooling
+falsepositives:
+    - 'Server code that legitimately shells out to curl.exe or whoami.exe'
+    - 'Electron or desktop tooling built on node.exe that runs diagnostics'
+level: high

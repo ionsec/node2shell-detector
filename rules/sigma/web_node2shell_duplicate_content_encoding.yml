@@ -1,0 +1,52 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / webserver + WAF request logs
+# CVE-2026-111497 (Node2Shell) — duplicate / stacked Content-Encoding request headers (N2S-13, VERBATIM)
+# =====================================================================
+title: Duplicate or Stacked Content-Encoding Request Headers - Node2Shell Parser-Differential Shape (CVE-2026-111497)
+id: 51c264c4-6861-4af1-bbf6-f121daf70c70
+status: experimental
+description: |
+    Detects N2S-13: a request with more than one Content-Encoding header.
+    Indusface AppTrana's emergency update of 22 Oct 2026 blocks Brotli
+    request bodies including list variants ("gzip, br") and duplicate
+    Content-Encoding headers: two hops that pick different header instances
+    (first, last, or the joined list) disagree about whether a body is br.
+
+    Provenance: N2S-13, VERBATIM (V, vendor-published protection logic).
+
+    How a duplicate reaches your logs (DERIVED; verify on your stack):
+      - Apache httpd merges repeated request headers into one comma-separated
+        value before %{Content-Encoding}i is logged;
+      - nginx 1.23+ joins repeated headers in $http_* variables with commas
+        (older nginx logs only the first instance);
+      - CDN/WAF JSON logs (AWS WAF, Cloudflare) keep one array entry per
+        header instance - flatten them to a joined string for this rule.
+    A duplicate therefore usually appears as a comma inside
+    cs-headers-content-encoding. The same selection also catches stacked
+    codings in one header ("gzip, br"), which are just as unusual on requests
+    and are inside the Indusface logic. Pipelines that keep the raw request
+    header block (ModSecurity audit log part B) can use the request_headers
+    selection, which looks for two Content-Encoding lines.
+references:
+    - https://www.indusface.com/blog/cve-2026-111497-node2shell-nodejs-brotli-rce/
+    - https://www.imperva.com/blog/node2shell-from-brotli-data-to-remote-code-execution/
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.initial-access
+    - attack.t1190
+    - attack.defense-evasion
+    - cve.2026-111497
+logsource:
+    category: webserver
+detection:
+    sel_joined_values:
+        cs-headers-content-encoding|contains: ','
+    sel_raw_header_block:
+        request_headers|re: '(?im)^content-encoding[ \t]*:.*\n(?:.*\n)*?content-encoding[ \t]*:'
+    condition: 1 of sel_*
+falsepositives:
+    - 'Clients or middleboxes that append a Content-Encoding header instead of replacing it (rare on requests)'
+    - 'Legitimately stacked request codings such as "gzip, deflate" (rare; most server-side decoders, including body-parser, inflation, @fastify/compress and aiohttp, accept a single coding only)'
+level: medium

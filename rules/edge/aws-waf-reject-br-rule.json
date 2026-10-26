@@ -1,0 +1,33 @@
+{
+  "Name": "ionsec-node2shell-reject-br-request-bodies",
+  "Priority": 0,
+  "Statement": {
+    "ByteMatchStatement": {
+      "SearchString": "br",
+      "FieldToMatch": {
+        "SingleHeader": {
+          "Name": "content-encoding"
+        }
+      },
+      "TextTransformations": [
+        {
+          "Priority": 0,
+          "Type": "LOWERCASE"
+        }
+      ],
+      "PositionalConstraint": "CONTAINS"
+    }
+  },
+  "Action": {
+    "Block": {
+      "CustomResponse": {
+        "ResponseCode": 415
+      }
+    }
+  },
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "ionsec-node2shell-reject-br"
+  }
+}

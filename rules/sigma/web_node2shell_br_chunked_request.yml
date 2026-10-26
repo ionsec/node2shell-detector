@@ -1,0 +1,51 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / webserver + WAF + reverse-proxy request logs
+# CVE-2026-111497 (Node2Shell) — Brotli body sent chunked without Content-Length (N2S-12, VERBATIM)
+# =====================================================================
+title: Brotli-Encoded Chunked Request Without Content-Length - Node2Shell Toolkit Shape (CVE-2026-111497)
+id: 783dbd17-c30f-4a5a-9b4b-eb6c1c4ad0fa
+status: experimental
+description: |
+    Detects N2S-12: a request that declares Content-Encoding br together with
+    Transfer-Encoding: chunked and carries no Content-Length.
+
+    Provenance: N2S-12, VERBATIM header combination (P, public PoC) from the
+    raw "crash_express" request of tc4dy/CVE-2026-111497-Toolkit (created
+    2026-10-24), which sends Content-Type: application/json,
+    Content-Encoding: br, Transfer-Encoding: chunked and Connection: close.
+    Only the three-part header shape is used as the selection; the JSON
+    Content-Type and Connection: close are triage context.
+
+    Why it matters beyond the toolkit: chunked framing lets a sender split the
+    trigger bytes across chunk boundaries, which defeats naive byte matching on
+    the raw wire stream (see the Suricata file header). This header-level rule
+    keeps firing whatever the body framing is.
+
+    Log requirement: request Content-Encoding, Transfer-Encoding and
+    Content-Length headers must be logged (cs-headers-<name> convention of the
+    php2shell package; map to your pipeline). Web servers often log an absent
+    header as "-", which the filter treats as absent.
+references:
+    - https://github.com/tc4dy/CVE-2026-111497-Toolkit
+    - https://www.imperva.com/blog/node2shell-from-brotli-data-to-remote-code-execution/
+    - https://nodejs.org/en/blog/vulnerability/october-2026-security-releases
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.initial-access
+    - attack.t1190
+    - cve.2026-111497
+logsource:
+    category: webserver
+detection:
+    sel_ce_br:
+        cs-headers-content-encoding|re: '(?i)(^|[\s,])br([\s,;]|$)'
+    sel_chunked:
+        cs-headers-transfer-encoding|contains: 'chunked'
+    filter_has_length:
+        cs-headers-content-length|re: '^[0-9]+$'
+    condition: sel_ce_br and sel_chunked and not filter_has_length
+falsepositives:
+    - 'Clients that stream a pre-compressed brotli upload (a readable stream piped through zlib createBrotliCompress, or an Apify client call with an explicit contentEncoding br on a stream); rare on public endpoints'
+level: medium

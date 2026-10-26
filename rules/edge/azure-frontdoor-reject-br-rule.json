@@ -1,0 +1,21 @@
+{
+  "name": "IonsecNode2ShellRejectBr",
+  "enabledState": "Enabled",
+  "priority": 10,
+  "ruleType": "MatchRule",
+  "matchConditions": [
+    {
+      "matchVariable": "RequestHeader",
+      "selector": "Content-Encoding",
+      "operator": "Contains",
+      "negateCondition": false,
+      "matchValue": [
+        "br"
+      ],
+      "transforms": [
+        "Lowercase"
+      ]
+    }
+  ],
+  "action": "Block"
+}

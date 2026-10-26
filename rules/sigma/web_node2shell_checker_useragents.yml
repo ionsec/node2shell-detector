@@ -1,0 +1,56 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / webserver access logs
+# CVE-2026-111497 (Node2Shell) — PoC / checker user-agents (N2S-08, N2S-09, N2S-10, VERBATIM)
+# =====================================================================
+title: Node2Shell PoC and Checker User-Agents (CVE-2026-111497)
+id: 7d96412b-e098-4b6d-bd16-56b95ecc2bf3
+status: experimental
+description: |
+    Detects the user-agent strings sent by public Node2Shell (CVE-2026-111497)
+    PoC and checker tools. Every value is copied verbatim from the brief
+    (section 7); none is invented.
+      - N2S-08, VERBATIM (P): starts with "Node2ShellChecker/" -
+        completetech-security/node2shell-check sends
+        Node2ShellChecker/<version>, optionally followed by " (+contact)".
+        Self-identifying exposure checker.
+      - N2S-09, VERBATIM (P): "Mozilla/5.0 (compatible; security-scanner)" -
+        Ghost-Bx1/Node2Shell-CVE-2026-111497 poc.py line 272. Generic
+        string: other scanners may send it too.
+      - N2S-10, VERBATIM (P; the brief marks the source repo UNCONFIRMED):
+        "cve-2026-111497-verify". IONSEC note from the research cache: its
+        only occurrence there is CaterMaoZi/CVE-2026-111497-POC
+        tools/verify_brotli.py, which sends it while downloading from
+        nodejs.org and raw.githubusercontent.com. An inbound hit on your own
+        servers is therefore unexpected; the egress companion rule
+        proxy_node2shell_verifier_download_useragent.yml covers the expected
+        placement.
+    Other public tools rotate browser user-agents (tc4dy toolkit) or send
+    plain browser strings, so the absence of a hit is no clearance.
+references:
+    - https://github.com/completetech-security/node2shell-check
+    - https://github.com/Ghost-Bx1/Node2Shell-CVE-2026-111497
+    - https://github.com/CaterMaoZi/CVE-2026-111497-POC
+    - https://www.imperva.com/blog/node2shell-from-brotli-data-to-remote-code-execution/
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.reconnaissance
+    - attack.t1595.002
+    - attack.initial-access
+    - attack.t1190
+    - cve.2026-111497
+logsource:
+    category: webserver
+detection:
+    sel_checker:
+        cs-user-agent|startswith: 'Node2ShellChecker/'
+    sel_poc_scanner:
+        cs-user-agent: 'Mozilla/5.0 (compatible; security-scanner)'
+    sel_verifier:
+        cs-user-agent: 'cve-2026-111497-verify'
+    condition: 1 of sel_*
+falsepositives:
+    - 'Authorized exposure checks by your own team or a contracted scanner (Node2ShellChecker is a self-identifying checker)'
+    - 'Unrelated scanners that reuse the generic "Mozilla/5.0 (compatible; security-scanner)" string'
+level: medium

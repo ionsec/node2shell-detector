@@ -1,0 +1,6 @@
+[2026-10-24T09:30:00.123Z] INFO server listening on :3000
+[2026-10-24T09:30:05.401Z] ERROR Error: EEXIST: file already exists, mkdir '/tmp/cache' { errno: -17, code: 'EEXIST', syscall: 'mkdir', path: '/tmp/cache' }
+[2026-10-24T09:30:06.002Z] ERROR Error: EBADF: bad file descriptor, close { errno: -9, code: 'EBADF', syscall: 'close' }
+[2026-10-24T09:30:07.870Z] WARN Error: incorrect header check at Zlib.zlibOnError { errno: -3, code: 'Z_DATA_ERROR' }
+type=SYSCALL msg=audit(1761298200.123:4242): arch=c000003e syscall=59 success=yes exit=0 auid=1000 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=pts0 comm="ls" exe="/usr/bin/ls"
+{"level": 30, "time": 1761298300000, "msg": "request completed", "res": {"statusCode": 200}}

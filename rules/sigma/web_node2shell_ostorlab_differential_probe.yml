@@ -1,0 +1,64 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / webserver + WAF request logs
+# CVE-2026-111497 (Node2Shell) — Ostorlab remote differential probe sweep (N2S-07, VERBATIM)
+# =====================================================================
+title: Ostorlab Node2Shell Differential Probe - Brotli JSON POST to API Paths (CVE-2026-111497)
+id: d34c384d-3e65-465a-a663-71396c7afa61
+status: experimental
+description: |
+    Detects N2S-07, the remote differential probe shipped by
+    Ostorlab/agent_asteroid (agent/exploits/cve_2026_111497.py). Constants
+    copied verbatim from the brief (section 6):
+      - POST with Content-Encoding: br, Content-Type: application/json,
+        Accept: application/json
+      - CANDIDATE_PATHS "/", "/api", "/api/v1", "/graphql"
+      - UNCOMPRESSED_JSON_PAYLOAD {"ping":1} (10 bytes, negative control:
+        an endpoint that ignores Content-Encoding answers 2xx, one that
+        decodes Brotli fails and answers 400)
+      - BENIGN_BROTLI_PAYLOAD 8b04807b2270696e67223a317d03 (14 bytes, valid
+        Brotli of {"ping":1})
+      - DIFFERENTIAL_BLOCK_SWITCH_PAYLOAD = the 22-byte seed N2S-01
+    The three body sizes appear in access logs as Content-Length 10, 14 and
+    22; that selection restates the VERBATIM payload sizes. Ostorlab also
+    reads the Node version from X-Powered-By / Server in the responses.
+
+    A sweep of the four paths with these three sizes is an exposure check
+    (patched and unpatched decoders answer the seed differently), not an
+    exploit - but it tells you who is mapping your Brotli-decoding endpoints.
+    The Accept header is part of the shape but is rarely logged, so it is
+    left out of the selection.
+references:
+    - https://github.com/Ostorlab/agent_asteroid
+    - https://nodejs.org/en/blog/vulnerability/october-2026-security-releases
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.reconnaissance
+    - attack.t1595.002
+    - cve.2026-111497
+logsource:
+    category: webserver
+detection:
+    sel_method:
+        cs-method: 'POST'
+    sel_paths:
+        cs-uri-stem:
+            - '/'
+            - '/api'
+            - '/api/v1'
+            - '/graphql'
+    sel_ce_br:
+        cs-headers-content-encoding: 'br'
+    sel_json:
+        cs-headers-content-type|startswith: 'application/json'
+    sel_probe_sizes:
+        cs-headers-content-length:
+            - '10'
+            - '14'
+            - '22'
+    condition: sel_method and sel_paths and sel_ce_br and sel_json and sel_probe_sizes
+falsepositives:
+    - 'Authorized Ostorlab scans (agent_asteroid) of your own perimeter'
+    - 'A legitimate client that brotli-compresses a tiny JSON body to one of these four paths (unlikely: the Apify client does not compress bodies under 1,024 bytes)'
+level: medium

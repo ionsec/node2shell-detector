@@ -1,0 +1,72 @@
+# =============================================================================
+# IONSEC node2shell detector — Envoy INBOUND guard (listener in front of Node / aiohttp)
+# CVE-2026-111497 (Node2Shell) — reject request bodies declared Content-Encoding br
+# Compiled: 2026-10-24 · Author: IONSEC · File: envoy-inbound-reject-br.yaml
+# =============================================================================
+# Two independent options; use one.
+#   A. Route match -> direct_response 415 (no extra filter). The router is the LAST
+#      HTTP filter, so filters before it still run.
+#   B. Lua filter placed FIRST in http_filters -> 415 before any later filter sees the
+#      request. Use B if the chain contains a request-direction decompressor.
+# ENVOY ITSELF: the decompressor filter with the brotli library is affected up to
+#   1.36.11 / 1.37.7 / 1.38.5 / 1.39.2 (GHSA-3wvj-j6qm-62mr); fixed 1.36.12, 1.37.8,
+#   1.38.6, 1.39.3, 1.40.0. Upgrade before relying on Envoy as the guard.
+# PROVENANCE: N2S-11 (DERIVED); token matching per the vendor workarounds (Aikido,
+#   Indusface): any case, inside lists, "brotli" and "x-br" excluded.
+# REPEATED HEADERS: Envoy matches the comma-joined value of repeated headers in route
+#   header matchers and returns it from Lua headers():get() - verify with a duplicate
+#   test on your version. Counting duplicates is left to the ModSecurity/Coraza drop-in.
+# WHY 415: see rules/edge/README.md.
+# These are fragments: merge them into your HttpConnectionManager config.
+# =============================================================================
+
+# ---- Option A: first route of every virtual host that fronts a Node backend ------------
+route_config:
+  name: local_route
+  virtual_hosts:
+  - name: node_app
+    domains: ["*"]
+    routes:
+    - name: ionsec-node2shell-reject-br
+      match:
+        prefix: "/"
+        headers:
+        - name: content-encoding
+          string_match:
+            safe_regex:
+              # RE2 syntax. Older Envoy: use "safe_regex_match" instead of
+              # "string_match.safe_regex" (and "google_re2: {}" on very old releases).
+              regex: '(?i)(^|[\s,])br([\s,;]|$)'
+      direct_response:
+        status: 415
+        body:
+          inline_string: "Unsupported Content-Encoding\n"
+    - name: app
+      match:
+        prefix: "/"
+      route:
+        cluster: node_backend
+
+# ---- Option B: Lua filter, FIRST entry of http_filters ---------------------------------
+# http_filters:
+# - name: envoy.filters.http.lua
+#   typed_config:
+#     "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+#     default_source_code:
+#       inline_string: |
+#         -- "br" as a coding token: pad with commas, then require a separator on
+#         -- both sides (whitespace or comma before; whitespace, comma or ";" after).
+#         function envoy_on_request(request_handle)
+#           local ce = request_handle:headers():get("content-encoding")
+#           if ce ~= nil then
+#             local padded = "," .. string.lower(ce) .. ","
+#             if string.find(padded, "[%s,]br[%s,;]") then
+#               request_handle:respond(
+#                 {[":status"] = "415", ["accept-encoding"] = "gzip, deflate"},
+#                 "Unsupported Content-Encoding\n")
+#             end
+#           end
+#         end
+# - name: envoy.filters.http.router
+#   typed_config:
+#     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

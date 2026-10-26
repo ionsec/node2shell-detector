@@ -1,0 +1,52 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / webserver access logs
+# CVE-2026-111497 (Node2Shell) — public lab routes combined with a Brotli body (N2S-22, VERBATIM)
+# =====================================================================
+title: Brotli Request Body Sent to Public Node2Shell Lab Routes (CVE-2026-111497)
+id: 6279dd78-42f5-434f-bdf5-51c065c22ab2
+status: experimental
+description: |
+    Detects N2S-22: the routes of the public Node2Shell labs, combined with a
+    Brotli request body. Route names copied verbatim from the brief (sections
+    6 and 7):
+      - dimasma0305/CVE-2026-111497-POC, Node 24.22.0 express-body-parser
+        lab: POST /upload handled by express.json(); GET /health answers PONG
+      - TheFool-TAROT/CVE-2026-111497-brotli-pwn lab: POST /stage, /tail and
+        /close (repeated writes into one decoder), repeated GET /warm (heap
+        grooming), POST /img, GET /file?p=
+    Provenance: N2S-22, VERBATIM route names (P). These names are common in
+    real applications, so the rule only fires when the POST carries
+    Content-Encoding br. GET /health, GET /warm and GET /file carry no body
+    and serve as triage context: a burst of GET /warm before a br POST to
+    /stage, /tail or /close from one source is the TheFool-TAROT sequence.
+    Running a copy of these labs against your own estate is what this rule
+    finds first - check your red-team calendar before escalating.
+references:
+    - https://github.com/dimasma0305/CVE-2026-111497-POC
+    - https://github.com/TheFool-TAROT/CVE-2026-111497-brotli-pwn
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.initial-access
+    - attack.t1190
+    - cve.2026-111497
+logsource:
+    category: webserver
+detection:
+    sel_method:
+        cs-method: 'POST'
+    sel_lab_routes:
+        cs-uri-stem:
+            - '/upload'
+            - '/stage'
+            - '/tail'
+            - '/close'
+            - '/img'
+    sel_ce_br:
+        cs-headers-content-encoding|re: '(?i)(^|[\s,])br([\s,;]|$)'
+    condition: sel_method and sel_lab_routes and sel_ce_br
+falsepositives:
+    - 'Applications that really expose /upload or /img and receive brotli-compressed uploads from their own clients'
+    - 'Internal training or red-team runs of the public labs'
+level: low

@@ -1,0 +1,42 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / forward (egress) proxy logs
+# CVE-2026-111497 (Node2Shell) — verification tooling run from inside the network (N2S-10, VERBATIM)
+# =====================================================================
+title: Node2Shell Verification Tool User-Agent in Egress Proxy Logs (CVE-2026-111497)
+id: e0911bcb-9e31-4b44-a85c-fadcba220e8d
+status: experimental
+description: |
+    Egress companion for N2S-10. The string "cve-2026-111497-verify" is
+    copied verbatim from the brief, which marks its source repo UNCONFIRMED.
+    IONSEC checked the research cache: the only occurrence is
+    CaterMaoZi/CVE-2026-111497-POC (created 2026-10-21, before the CVE was
+    published) tools/verify_brotli.py, whose http_get() sends this
+    user-agent when downloading Node.js artefacts from nodejs.org and
+    raw.githubusercontent.com. The natural place to see it is therefore an
+    egress proxy, not your web servers.
+
+    A hit means a host inside your network ran that verifier - a researcher,
+    a red-teamer, or your own patch validation. Informational: use it to
+    learn where CVE-2026-111497 tooling is being run and to pair it with the
+    inbound rules.
+
+    Visibility: both download hosts are HTTPS-only, so the user-agent is
+    visible only on proxies that terminate TLS (or log the inner request);
+    a CONNECT-only log line does not carry it.
+references:
+    - https://github.com/CaterMaoZi/CVE-2026-111497-POC
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - cve.2026-111497
+    - detection.threat-hunting
+logsource:
+    category: proxy
+detection:
+    sel_ua:
+        c-useragent: 'cve-2026-111497-verify'
+    condition: sel_ua
+falsepositives:
+    - 'Your own security or platform team validating Node.js patch levels with the CaterMaoZi verifier (expected; record it)'
+level: informational

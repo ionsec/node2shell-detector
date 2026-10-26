@@ -1,0 +1,88 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / process-creation (Linux: EDR, auditd execve, Sysmon for Linux)
+# CVE-2026-111497 (Node2Shell) — node/bun server spawns shell recon or download (N2S-21, DERIVED)
+# =====================================================================
+title: Node.js or Bun Server Process Spawns Shell Recon or Download Command - Linux (CVE-2026-111497)
+id: 9c84faf3-e975-4c5e-9df8-ae8500c01ceb
+status: experimental
+description: |
+    Detects N2S-21: a node or bun process starting a shell (sh/bash/dash ...
+    -c) that runs id, whoami, uname, curl or wget, or starting those binaries
+    directly (child_process.execFile, or a shell that execs the single
+    command in place so the binary appears with node as its parent).
+
+    Public Node2Shell proofs of execution do exactly this: Arkango sends
+    "/bin/bash -c id" output back over a callback socket; dimasma0305 reads
+    fresh id stdout on the HTTP socket.
+
+    Provenance: N2S-21, DERIVED (D) - the command list (id, whoami, uname,
+    curl/wget) is the brief's; the parent/child logic is generic
+    post-exploitation coverage.
+
+    Scope (brief FP note): npm scripts, build tools and test runners spawn
+    shells from node all the time. The filter removes the common
+    package-manager and build entry points (IONSEC tuning, extend it);
+    better still, restrict ParentCommandLine to your server entry points
+    (server.js, dist/main.js, ...) where you can.
+references:
+    - https://github.com/Arkango/CVE-2026-111497
+    - https://github.com/dimasma0305/CVE-2026-111497-POC
+    - https://www.imperva.com/blog/node2shell-from-brotli-data-to-remote-code-execution/
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.execution
+    - attack.t1059.004
+    - attack.discovery
+    - attack.t1033
+    - attack.t1082
+    - attack.command-and-control
+    - attack.t1105
+    - cve.2026-111497
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    sel_parent_runtime:
+        ParentImage|endswith:
+            - '/node'
+            - '/nodejs'
+            - '/bun'
+    sel_shell_with_recon:
+        Image|endswith:
+            - '/sh'
+            - '/bash'
+            - '/dash'
+            - '/zsh'
+            - '/ash'
+            - '/busybox'
+        CommandLine|re: '\s-c\s.*\b(id|whoami|uname|curl|wget)\b'
+    sel_direct_recon:
+        Image|endswith:
+            - '/id'
+            - '/whoami'
+            - '/uname'
+            - '/curl'
+            - '/wget'
+    filter_build_tooling:
+        ParentCommandLine|contains:
+            - 'npm-cli.js'
+            - 'npx-cli.js'
+            - 'yarn.js'
+            - 'yarn.cjs'
+            - 'pnpm.cjs'
+            - 'node-gyp'
+            - '/jest/bin/'
+            - '/mocha/bin/'
+            - '/vitest/'
+            - '/webpack-cli/'
+            - '/vite/bin/'
+            - '/typescript/bin/'
+            - '/eslint/bin/'
+            - 'next/dist/bin/next'
+    condition: sel_parent_runtime and (sel_shell_with_recon or sel_direct_recon) and not filter_build_tooling
+falsepositives:
+    - 'Server code that legitimately shells out to curl/wget or uname (health probes, update checkers, image tooling)'
+    - 'Long-running dev servers and task runners not covered by the filter'
+level: high

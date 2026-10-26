@@ -1,0 +1,40 @@
+# =============================================================================
+# IONSEC node2shell detector — Cloudflare WAF custom rule expressions (INBOUND)
+# CVE-2026-111497 (Node2Shell) — block request bodies declared Content-Encoding br
+# Compiled: 2026-10-24 · Author: IONSEC · File: cloudflare-waf-custom-rules.txt
+# =============================================================================
+# Context (brief section 6): Cloudflare's WAF changelog through 2026-10-22 names no
+# managed rule for CVE-2026-111497 / Node2Shell / Brotli (the 21-22 Oct emergency rules
+# are the PHP2Shell set). Until one ships, add a custom rule.
+# Where: Security > WAF > Custom rules > Create rule > "Edit expression", paste ONE of
+# the expressions below. Action: Block. If your plan offers a custom response for Block,
+# set status 415 (see rules/edge/README.md for why 415); otherwise Cloudflare's default
+# block status applies.
+# Field: http.request.headers is a map of lower-cased header names to an array with one
+# element per header instance, so a repeated Content-Encoding header and a list value
+# ("gzip, br") are both inspected.
+# Lines starting with "#" are comments - do not paste them.
+# =============================================================================
+
+# --- Option 1: substring "contains" (no regex needed; works on every plan) ------------
+# CAVEAT: substring, not token, matching. Anything containing the letters "br" in a
+# Content-Encoding value matches (e.g. a made-up coding "x-brotli"). No registered request
+# content coding other than br contains "br" (gzip, deflate, compress, zstd, identity),
+# so the over-match is theoretical; it can never under-match a br token.
+
+any(lower(http.request.headers["content-encoding"][*])[*] contains "br")
+
+# --- Option 2: regex "matches" (plans that include the matches operator) --------------
+# Token-exact: matches "br", "BR", "gzip, br", "br ; x"; not "brotli" or "x-br".
+# Backslashes are doubled because the regex sits inside an expression string literal.
+
+any(http.request.headers["content-encoding"][*] matches "(?i)(^|[\\s,])br([\\s,;]|$)")
+
+# --- Optional allowlist (known Brotli senders, only in front of a patched decoder) -----
+# Append to either expression, e.g. for Apify-API-shaped uploads from known addresses
+# (192.0.2.10 is a documentation address - replace it):
+#   ... and not (ip.src in {192.0.2.10} and starts_with(http.request.uri.path, "/v2/"))
+#
+# OUTBOUND IS NOT COVERED: this rule sees requests entering your zone. Responses that
+# your origin (or a Worker's fetch()) pulls from other servers are outside its reach -
+# see rules/edge/README.md "coverage map" and the egress snippets.

@@ -1,0 +1,64 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / Linux kernel log, syslog, journald
+# CVE-2026-111497 (Node2Shell) — node/bun killed by a memory-safety signal (N2S-18, triage clue)
+# =====================================================================
+title: Node.js or Bun Process Crash on SIGSEGV/SIGBUS/SIGABRT - Node2Shell Triage Clue (CVE-2026-111497)
+id: a9853605-870f-4f1c-9394-d7833a899f87
+status: experimental
+description: |
+    Detects N2S-18: a node or bun process dying on a memory-safety signal
+    (SIGSEGV, SIGBUS, SIGABRT) as recorded by the Linux kernel or by
+    systemd-coredump. Failed Node2Shell attempts crash the decoding process:
+    Imperva needed multiple attempts for its RCE on stock Node 24.22.0
+    linux/arm64.
+
+    IMPERVA CAVEAT (brief section 4): unexpected process exits are a triage
+    clue, "not a reliable stand-alone sign of exploitation". Many unrelated bugs crash Node. Escalate only together
+    with a preceding Content-Encoding br request (N2S-11), an outbound fetch
+    of an attacker-chosen URL, the seed on the wire, or repeated restarts
+    (systemd restart loops, Kubernetes CrashLoopBackOff).
+
+    Provenance: N2S-18, V (Imperva). The log-line shapes are DERIVED: they are
+    the standard renderings of those signals, not strings captured from an
+    exploitation:
+      - x86-64 kernel: "<comm>[<pid>]: segfault at <addr> ip ... in <obj>"
+        and "traps: <comm>[<pid>] general protection fault ..."
+      - arm64 kernel (Imperva's target architecture): "<comm>[<pid>]:
+        unhandled exception: ..." (older kernels: "unhandled level <n> ...
+        fault"), printed while show_unhandled_signals is on (the default)
+      - systemd-coredump: "Process <pid> (<comm>) of user <uid> dumped core."
+    systemd unit-exit lines ("status=11/SEGV") name the unit, not the
+    binary: add your own Node unit names to keywords_runtime to use them.
+references:
+    - https://www.imperva.com/blog/node2shell-from-brotli-data-to-remote-code-execution/
+    - https://nodejs.org/en/blog/vulnerability/october-2026-security-releases
+    - https://github.com/oven-sh/bun/issues/46352
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.impact
+    - attack.t1499.004
+    - attack.initial-access
+    - attack.t1190
+    - cve.2026-111497
+logsource:
+    product: linux
+detection:
+    keywords_runtime:
+        - 'node['
+        - 'bun['
+        - '(node)'
+        - '(bun)'
+    keywords_crash:
+        - 'segfault at'
+        - 'general protection fault'
+        - 'unhandled exception'
+        - 'unhandled level'
+        - 'dumped core'
+    condition: keywords_runtime and keywords_crash
+falsepositives:
+    - 'Native addon bugs, out-of-memory aborts, V8 fatal errors and other crashes unrelated to Brotli'
+    - 'Test suites or fuzzers that crash node on purpose'
+    - 'Process names that merely end in "node" or "bun" (comm is truncated to 15 characters by the kernel)'
+level: low

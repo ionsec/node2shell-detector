@@ -1,0 +1,75 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / Node.js application logs + stack traces
+# CVE-2026-111497 (Node2Shell) — patched decoder rejected the trigger (N2S-16, VERBATIM + DERIVED brotli 1.0.x rendering)
+# =====================================================================
+title: Patched Brotli Decoder Rejected Invalid Block Switch - ERR__ERROR_FORMAT_BLOCK_SWITCH (CVE-2026-111497 Attempt)
+id: 692cd3a6-f017-40dc-9b0b-3f0e327afc9f
+status: experimental
+description: |
+    Detects N2S-16: the error a FIXED Brotli decoder raises on the Node2Shell
+    trigger. The fix (google/brotli 0ed4268a "Detect and report invalid
+    stream earlier", shipped in Node.js 22.23.4 / 24.22.1 / 26.12.1 and
+    brotli 1.0.10 / 1.1.1 / 1.2.1) turns a block switch in a stream that
+    declared a single block type into the permanent error
+    BROTLI_DECODER_ERROR_FORMAT_BLOCK_SWITCH (-17). Node's node_zlib.cc
+    builds the JavaScript error code as "ERR_" + BrotliDecoderErrorString(),
+    so a patched Node throws code 'ERR__ERROR_FORMAT_BLOCK_SWITCH' with
+    errno -17 - the exact value Node's regression test
+    (test/parallel/test-zlib-invalid-input.js, commit b5f41529df) asserts and
+    dimasma0305's runtime oracle keys on.
+
+    Provenance:
+      - keywords_prefixed - N2S-16, VERBATIM strings (V+D): the Node error
+        code and the upstream error-name string "_ERROR_FORMAT_BLOCK_SWITCH"
+        (the second also catches other bindings and the brotli CLI that print
+        the upstream name). This is the rendering of brotli 1.1.0 and later,
+        which Node 18+ bundles.
+      - keywords_brotli_1_0_x - 'ERR_BLOCK_SWITCH', DERIVED: brotli 1.0.x
+        builds BrotliDecoderErrorString() with "return #NAME;" where 1.1.0+
+        uses "return #PREFIX #NAME;" (checked in the google/brotli tags
+        v1.0.3, v1.0.9 and v1.0.10 versus v1.1.0+, and confirmed by the IONSEC
+        coordinator). The 1.0.x-branch fix (upstream v1.0.10, 50a9b70) adds
+        BLOCK_SWITCH to that bare table, so a Node.js process whose decoder is
+        a patched 1.0.x library builds "ERR_" + "BLOCK_SWITCH". Example: Debian
+        bookworm's nodejs links the system libbrotli, and the bookworm fix is
+        the 1.0.x-branch update libbrotli1 1.0.9-2+deb12u1 (DLA-4855-1); other
+        Node builds using --shared-brotli against a patched 1.0.x library, and
+        other 1.0.x-based decoders surfaced the same way, render it alike.
+        Not yet observed in a log capture.
+
+    Meaning of a hit: only a patched decoder emits it, so someone sent the
+    trigger (or another malformed stream that reaches the same check) to a
+    host that is already fixed. Treat it as an attempt and hunt the same
+    source against hosts that are not patched yet.
+
+    errno -17 alone is useless: Node also reports EEXIST file-system errors as
+    errno -17, which is why there is no errno selection.
+references:
+    - https://nodejs.org/en/blog/vulnerability/october-2026-security-releases
+    - https://github.com/google/brotli/commit/0ed4268a4401abcb4472096340477cf4af7d1a2b
+    - https://github.com/dimasma0305/CVE-2026-111497-POC
+    - https://lists.debian.org/debian-lts-announce/2026/10/msg00049.html
+    - https://security-tracker.debian.org/tracker/CVE-2026-111497
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.initial-access
+    - attack.t1190
+    - cve.2026-111497
+logsource:
+    category: application
+    product: nodejs
+detection:
+    keywords_prefixed:
+        - 'ERR__ERROR_FORMAT_BLOCK_SWITCH'
+        - '_ERROR_FORMAT_BLOCK_SWITCH'
+    keywords_brotli_1_0_x:
+        # DERIVED: the brotli 1.0.x error-name table has no "_ERROR_FORMAT_" prefix
+        - 'ERR_BLOCK_SWITCH'
+    condition: 1 of keywords_*
+falsepositives:
+    - 'Your own patch validation or behavioural self-tests feeding the regression vector to zlib (N2S-25-style checks, Node test suite runs)'
+    - 'Authorized scanners using the differential probe (Ostorlab) against patched hosts'
+    - 'Other malformed Brotli input that happens to hit the same single-block-type check'
+level: medium

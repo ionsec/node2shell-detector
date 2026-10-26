@@ -1,0 +1,58 @@
+# =============================================================================
+# IONSEC node2shell detector — Envoy EGRESS guard (responses the app fetches)
+# CVE-2026-111497 (Node2Shell) — never hand a Content-Encoding br response to the app
+# Compiled: 2026-10-24 · Author: IONSEC · File: envoy-egress-br-guard.yaml
+# =============================================================================
+# THE GAP: fetch()/axios/got/node-fetch 3/needle, Bun fetch and Python clients with Brotli
+#   installed decode a Content-Encoding br response automatically; a malicious server sends
+#   br whatever the client asked for. Webhooks, unfurlers, image proxies, crawlers and SSR
+#   of user-supplied URLs need no inbound request, and a WAF in front of the app never
+#   sees the response (Vercel's caveat about its own WAF rules, brief section 6).
+# WHAT (Lua filter on an egress listener / sidecar outbound / egress gateway):
+#   request : rewrite an Accept-Encoding that offers br to "gzip, deflate"
+#   response: when Content-Encoding carries the br token, REMOVE the header, turn the
+#             status into 502 and tag the response. Without a Content-Encoding header the
+#             client library treats the body as identity and never runs its Brotli
+#             decoder. (Lua cannot respond() in the response path, hence the rewrite.)
+# LIMITS: Envoy must see HTTP: originate TLS here (the app speaks plain HTTP to Envoy,
+#   Envoy speaks TLS upstream) - a CONNECT tunnel carrying end-to-end TLS is opaque.
+# NEVER enable the brotli decompressor filter as a "fix" on affected Envoy versions
+#   (<= 1.36.11 / 1.37.7 / 1.38.5 / 1.39.2, GHSA-3wvj-j6qm-62mr): it is the bug itself.
+# Fragment: merge into the HttpConnectionManager of your egress listener.
+# =============================================================================
+
+http_filters:
+- name: envoy.filters.http.lua
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+    default_source_code:
+      inline_string: |
+        -- "br" as a coding token: pad with commas, then require a separator on
+        -- both sides (whitespace or comma before; whitespace, comma or ";" after).
+        local function has_br(value)
+          if value == nil then
+            return false
+          end
+          local padded = "," .. string.lower(value) .. ","
+          return string.find(padded, "[%s,]br[%s,;]") ~= nil
+        end
+
+        function envoy_on_request(request_handle)
+          local headers = request_handle:headers()
+          if has_br(headers:get("accept-encoding")) then
+            headers:replace("accept-encoding", "gzip, deflate")
+          end
+        end
+
+        function envoy_on_response(response_handle)
+          local headers = response_handle:headers()
+          if has_br(headers:get("content-encoding")) then
+            headers:remove("content-encoding")
+            headers:replace(":status", "502")
+            headers:replace("x-ionsec-node2shell", "upstream-br-stripped")
+            response_handle:logWarn("node2shell egress guard: upstream answered Content-Encoding br; header removed, status 502")
+          end
+        end
+- name: envoy.filters.http.router
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

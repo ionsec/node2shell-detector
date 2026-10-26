@@ -1,0 +1,48 @@
+# =====================================================================
+# IONSEC node2shell detector — SIGMA / reverse-proxy + WAF response logs (body-aware)
+# CVE-2026-111497 (Node2Shell) — Unix id output in an HTTP response body (N2S-19, VERBATIM)
+# =====================================================================
+title: Unix id Command Output in HTTP Response Body - Node2Shell Post-Exploitation Marker (CVE-2026-111497)
+id: 42e4e392-8fbb-4ce2-97ee-b9b84e62e3c7
+status: experimental
+description: |
+    Detects N2S-19: output of the Unix id command ("uid=<n>(<name>)
+    gid=<n>(<name>)") inside an HTTP response body served by one of your
+    applications. Public Node2Shell proofs of execution return exactly this:
+    dimasma0305/CVE-2026-111497-POC claims "Fresh id stdout on the HTTP
+    socket, twice" against Node 24.22.0 + Express 5.3.0 / body-parser 2.4.0,
+    and Arkango/CVE-2026-111497 sends "/bin/bash -c id" output back over a
+    callback socket.
+
+    Provenance: N2S-19, VERBATIM - the regex is dimasma0305's published
+    response-marker regex, unchanged. The brief rates it near-zero in
+    legitimate application traffic.
+
+    Scope it to responses from your own servers (reverse-proxy / WAF response
+    logs). Pages that document the id command (wikis, tutorials, man-page
+    mirrors) contain the same text, so do not run it on forward-proxy logs of
+    users browsing the web. Requires response-body logging; a
+    Brotli-compressed response body is not readable by most log pipelines.
+references:
+    - https://github.com/dimasma0305/CVE-2026-111497-POC
+    - https://github.com/Arkango/CVE-2026-111497
+    - https://www.imperva.com/blog/node2shell-from-brotli-data-to-remote-code-execution/
+author: IONSEC
+date: 2026-10-24
+modified: 2026-10-24
+tags:
+    - attack.execution
+    - attack.t1059.004
+    - attack.discovery
+    - attack.t1033
+    - cve.2026-111497
+logsource:
+    category: proxy
+detection:
+    sel_id_output:
+        response_body|re: 'uid=\d+(?:\([^)\r\n]+\))?\s+gid=\d+(?:\([^)\r\n]+\))?'
+    condition: sel_id_output
+falsepositives:
+    - 'Applications that intentionally return id output (admin diagnostics, web terminals, CI log viewers)'
+    - 'Internal documentation sites served through the same reverse proxy'
+level: high

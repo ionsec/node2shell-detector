@@ -1,0 +1,220 @@
+# =============================================================================
+# IONSEC node2shell detector — Suricata rules
+# CVE-2026-111497 (Node2Shell) — out-of-bounds write in the Google Brotli C decoder,
+# reached through node:zlib (Express 5 / body-parser 2 request bodies, Koa co-body,
+# @fastify/compress, fetch/axios/got responses) and other Brotli C consumers
+# (Bun, Python aiohttp/requests/Scrapy, Envoy brotli decompressor ...)
+# Compiled: 2026-10-24 · Author: IONSEC · File: ionsec-node2shell.rules
+# =============================================================================
+# SOURCE + PROVENANCE NOTES (no silent copying):
+#
+#   Every byte string, header shape and user-agent below is copied from the IONSEC
+#   Node2Shell research brief (fingerprint catalogue N2S-01 ... N2S-25, section 7),
+#   which took each one from a fetched source. Each rule states its N2S id and
+#   whether it is VERBATIM (exact documented bytes / string / shape) or DERIVED
+#   (logic grounded in a documented observation; the derivation is stated inline).
+#   rules/references/node2shell-sources.md maps every SID to its sources.
+#
+#   SID 1006630 is ADAPTED from dimasma0305/CVE-2026-111497-POC, lab rule
+#   defense/rules/suricata/node-identity-output.rules (sid:9001497 rev:2, "uid="
+#   then "gid=" within 100 bytes, to_client from port 3000, validated by its author
+#   on Suricata 8.0.7 against the pinned Express lab only). Licence: not stated in
+#   the files IONSEC fetched, so no rule text is copied; the two-content logic and
+#   the author's published response-marker regex are re-implemented here.
+#   ADAPTATION DELTA: any server port, HTTP response body instead of the raw lab
+#   socket, servers restricted to $HOME_NET, author's regex added as a pcre,
+#   severity raised to Critical/high, SID moved into the IONSEC block. The raw-socket
+#   form is kept below as an optional, commented rule (1006631).
+#
+# SID RENUMBERING / PRIVATE RANGE:
+#   Suricata local/private block 1000000-1999999. IONSEC allocations:
+#     php2shell  1006500-1006599 (in use: 1006500-1006502, 1006510-1006518)
+#     node2shell 1006600-1006699 (this file)
+#   No SID overlaps; the two files can be loaded side by side.
+#   SID index (this file):
+#     1006600-1006606  HTTP header / user-agent / scanner shapes   (to_server)
+#     1006610-1006614  trigger payload bytes, raw stream           (to_server)
+#     1006620          trigger payload bytes after a br response   (to_client, fetch-trap)
+#     1006630          id(1) output in a response body             (to_client, compromise signal)
+#     1006631          optional raw-socket variant of 1006630      (commented out)
+#   Free for future use: 1006607-1006609, 1006615-1006619, 1006621-1006629,
+#   1006632-1006699.
+#
+# WHERE SURICATA HOLDS DECODED vs RAW BYTES (read before tuning):
+#   1. Trigger bytes are matched in the RAW reassembled TCP stream (content keywords
+#      before any sticky buffer), not in http.request_body / http.response_body /
+#      file.data. Those body buffers hold what the HTTP parser hands over after
+#      de-chunking and, for responses, after Content-Encoding decoding: Suricata's
+#      libhtp (Suricata 6.x/7.x) decodes gzip/deflate (and lzma) response bodies.
+#      IONSEC is not aware of a Brotli decoder in libhtp, and Suricata is not known
+#      to decode request bodies at all, so today a br body most likely sits in the
+#      body buffers undecoded - but that was NOT verified here, Suricata 8 replaced
+#      libhtp with an in-tree port that IONSEC did not check, and a build that did
+#      decode br would replace the trigger bytes with decoder output (or nothing, on
+#      a decode error). The raw stream carries the bytes exactly as they crossed the
+#      wire whatever the parser does, so the payload rules do not depend on it.
+#   2. Header checks stay in the HTTP buffers: http.header (normalised; libhtp folds
+#      a repeated request header into one "a, b" value, so a br token inside a
+#      merged value is still seen), http.header.raw (as received - the only buffer
+#      where two Content-Encoding header lines are still two lines), http.method,
+#      http.user_agent, http.content_type.
+#   3. Mixed rules (raw content + http.* buffers: 1006606, 1006620) are evaluated by
+#      Suricata's stream inspection inside the HTTP transaction. They fire when the
+#      payload bytes and the matching headers are seen in the same transaction;
+#      replay a lab pcap to confirm on your version before relying on them.
+#   4. Raw-stream limits: TLS must be terminated before the sensor (or decrypted);
+#      a chunked upload whose chunk boundaries fall inside the 22 bytes splits the
+#      pattern (tc4dy's chunked request shape is caught by header rule 1006601
+#      whatever the framing); an HTTP/2 DATA-frame boundary inside the pattern does
+#      the same; stream.reassembly.depth (default 1 MiB) bounds how deep into a
+#      flow raw content is inspected, so a trigger sent late on a long keep-alive
+#      connection can be missed - raise the depth on sensors that guard Node APIs.
+#   5. The id-output rule (1006630) deliberately uses http.response_body: command
+#      output is plain text, and libhtp un-gzips compressed responses into that
+#      buffer, so gzip-compressed output is still matched (br-compressed output is
+#      not).
+#
+# VERIFY ON YOUR SURICATA VERSION:
+#   No Suricata binary exists in the IONSEC build environment (checked 2026-10-24);
+#   syntax was linted by hand and with a structural checker (balanced quotes and
+#   parentheses, option grammar, |..| hex pairs, unique SIDs inside the block).
+#   Before enforcing:
+#     suricata -T -c /etc/suricata/suricata.yaml -S ionsec-node2shell.rules
+#   then replay a lab capture in both directions. To learn which bytes YOUR build
+#   keeps in the request-body buffer for a br body, load a throw-away test rule
+#     alert http any any -> any any (msg:"TEST br body raw?"; flow:established,to_server; http.request_body; content:"|20 00 10 41 41 41|"; sid:9999001; rev:1;)
+#   and send the N2S-01 seed to a lab endpoint with Content-Encoding: br. A hit
+#   means the buffer holds raw bytes; no hit (with 1006610 firing) means it does not.
+#
+# FALSE-POSITIVE GUIDANCE (summary; see rules/README.md):
+#   - The N2S-01 seed is also sent by authorized scanners (Ostorlab differential
+#     probe) and lives in defensive known-answer tests in more than 12 public repos;
+#     a network hit from your own scanner IPs is expected.
+#   - Apify JavaScript API clients brotli-compress request bodies of 1,024 bytes or
+#     more by default (docs.apify.com): expect 1006600 hits only on Apify-API-shaped
+#     endpoints you operate or proxy.
+#   - Outbound "Accept-Encoding: br" from Node clients (undici fetch, axios, got,
+#     node-fetch 3, needle) is NORMAL. No rule here alerts on it; never add one.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# GROUP A — HTTP header / user-agent / scanner shapes (to_server)
+# Sources (brief sections 5-7): expressjs.com/en/guide/migrating-5.html ·
+# www.indusface.com/blog/cve-2026-111497-node2shell-nodejs-brotli-rce/ ·
+# GitHub repos named per rule.
+# -----------------------------------------------------------------------------
+
+# A1 — N2S-11, DERIVED (hunting). Express 5 / body-parser 2.x decode request bodies
+# declared Content-Encoding br by default (inflate defaults to true); co-body,
+# @koa/bodyparser, koa-body, @fastify/compress, Nest 11+ and aiohttp do too. The br
+# token is matched case-insensitively and inside lists ("gzip, br"), as the vendor
+# workarounds require (Aikido, Indusface). Token boundary = any character that cannot
+# belong to a content-coding token, so "brotli" or "x-br" do not match.
+# FP: Apify JS API client (bodies >= 1,024 B, brotli by default).
+alert http any any -> any any (msg:"IONSEC NODE2SHELL HTTP request body declared Brotli (Content-Encoding br) on POST/PUT/PATCH (CVE-2026-111497 hunting)"; flow:established,to_server; http.method; pcre:"/^(?:POST|PUT|PATCH)$/"; http.header; content:"content-encoding"; nocase; fast_pattern; pcre:"/^content-encoding[ \t]*:[^\r\n]*?(?<![\w.+-])br(?![\w.+-])/mi"; threshold: type limit, track by_src, count 1, seconds 3600; reference:cve,2026-111497; reference:url,expressjs.com/en/guide/migrating-5.html; reference:url,www.indusface.com/blog/cve-2026-111497-node2shell-nodejs-brotli-rce/; classtype:misc-activity; sid:1006600; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Low, signature_severity Informational, ionsec_n2s N2S_11, provenance DERIVED;)
+
+# A2 — N2S-12, VERBATIM header combination (tc4dy/CVE-2026-111497-Toolkit raw
+# "crash_express" request: Content-Type application/json, Content-Encoding br,
+# Transfer-Encoding chunked, Connection close). Selection = br + chunked + no
+# Content-Length. Header-only on purpose: it keeps firing when chunk boundaries split
+# the trigger bytes on the wire.
+alert http any any -> any any (msg:"IONSEC NODE2SHELL Brotli-encoded chunked request body without Content-Length (CVE-2026-111497 toolkit shape)"; flow:established,to_server; http.header; content:"transfer-encoding"; nocase; pcre:"/^transfer-encoding[ \t]*:[^\r\n]*chunked/mi"; content:"content-encoding"; nocase; fast_pattern; pcre:"/^content-encoding[ \t]*:[^\r\n]*?(?<![\w.+-])br(?![\w.+-])/mi"; content:!"content-length"; nocase; reference:cve,2026-111497; reference:url,github.com/tc4dy/CVE-2026-111497-Toolkit; classtype:web-application-attack; sid:1006601; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Medium, signature_severity Minor, ionsec_n2s N2S_12, provenance VERBATIM;)
+
+# A3 — N2S-13, VERBATIM vendor logic (Indusface AppTrana, 22 Oct: blocks duplicate
+# Content-Encoding headers). Inspected in http.header.raw because libhtp merges the
+# repeated header in http.header. Two header lines named Content-Encoding = alert.
+alert http any any -> any any (msg:"IONSEC NODE2SHELL duplicate Content-Encoding request headers (CVE-2026-111497 parser-differential shape)"; flow:established,to_server; http.header.raw; content:"content-encoding"; nocase; fast_pattern; pcre:"/(?:^|\n)content-encoding[ \t]*:[^\n]*\n(?:[^\n]*\n)*?content-encoding[ \t]*:/i"; reference:cve,2026-111497; reference:url,www.indusface.com/blog/cve-2026-111497-node2shell-nodejs-brotli-rce/; classtype:web-application-attack; sid:1006602; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Medium, signature_severity Minor, ionsec_n2s N2S_13, provenance VERBATIM;)
+
+# A4 — N2S-08, VERBATIM: user-agent starts with "Node2ShellChecker/"
+# (completetech-security/node2shell-check; version suffix, optional " (+contact)").
+alert http any any -> any any (msg:"IONSEC NODE2SHELL Node2ShellChecker exposure-checker user-agent (CVE-2026-111497 scanning)"; flow:established,to_server; http.user_agent; content:"Node2ShellChecker/"; startswith; threshold: type limit, track by_src, count 1, seconds 900; reference:cve,2026-111497; reference:url,github.com/completetech-security/node2shell-check; classtype:attempted-recon; sid:1006603; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence High, signature_severity Informational, ionsec_n2s N2S_08, provenance VERBATIM;)
+
+# A5 — N2S-09, VERBATIM: "Mozilla/5.0 (compatible; security-scanner)"
+# (Ghost-Bx1/Node2Shell-CVE-2026-111497 poc.py:272). Generic string, low confidence.
+alert http any any -> any any (msg:"IONSEC NODE2SHELL Ghost-Bx1 PoC scanner user-agent (CVE-2026-111497 scanning)"; flow:established,to_server; http.user_agent; content:"Mozilla/5.0 (compatible|3b| security-scanner)"; startswith; threshold: type limit, track by_src, count 1, seconds 900; reference:cve,2026-111497; reference:url,github.com/Ghost-Bx1/Node2Shell-CVE-2026-111497; classtype:attempted-recon; sid:1006604; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Low, signature_severity Minor, ionsec_n2s N2S_09, provenance VERBATIM;)
+
+# A6 — N2S-10, VERBATIM: "cve-2026-111497-verify" (brief: repo UNCONFIRMED). IONSEC
+# research-cache note: only seen in CaterMaoZi/CVE-2026-111497-POC
+# tools/verify_brotli.py, which sends it while DOWNLOADING from nodejs.org and
+# raw.githubusercontent.com (HTTPS) - expect it on decrypted egress, not inbound.
+# Direction-agnostic on purpose; informational.
+alert http any any -> any any (msg:"IONSEC NODE2SHELL CVE-2026-111497 verifier user-agent (verification tooling)"; flow:established,to_server; http.user_agent; content:"cve-2026-111497-verify"; startswith; threshold: type limit, track by_src, count 1, seconds 3600; reference:cve,2026-111497; reference:url,github.com/CaterMaoZi/CVE-2026-111497-POC; classtype:misc-activity; sid:1006605; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Medium, signature_severity Informational, ionsec_n2s N2S_10, provenance VERBATIM;)
+
+# A7 — N2S-07, VERBATIM (Ostorlab/agent_asteroid agent/exploits/cve_2026_111497.py):
+# negative control UNCOMPRESSED_JSON_PAYLOAD {"ping":1} POSTed with Content-Encoding
+# br + Content-Type application/json (+ Accept application/json) to "/", "/api",
+# "/api/v1", "/graphql". The body content is matched in the raw stream (mixed rule,
+# see header note 3). The same 10 bytes sit inside Ostorlab's BENIGN_BROTLI_PAYLOAD
+# 8b04807b2270696e67223a317d03 (an uncompressed meta-block), so this rule covers both
+# benign probes; the third probe (the N2S-01 seed) is 1006610.
+alert http any any -> any any (msg:"IONSEC NODE2SHELL Ostorlab differential probe body ping-1 with Content-Encoding br (CVE-2026-111497 exposure scan)"; flow:established,to_server; content:"{|22|ping|22|:1}"; fast_pattern; http.method; content:"POST"; http.header; content:"content-encoding"; nocase; pcre:"/^content-encoding[ \t]*:[ \t]*br[ \t]*\r?$/mi"; http.content_type; content:"application/json"; startswith; nocase; threshold: type limit, track by_src, count 1, seconds 900; reference:cve,2026-111497; reference:url,github.com/Ostorlab/agent_asteroid; classtype:attempted-recon; sid:1006606; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence High, signature_severity Informational, ionsec_n2s N2S_07, provenance VERBATIM;)
+
+# -----------------------------------------------------------------------------
+# GROUP B — trigger payload bytes in the client-to-server RAW stream
+# Header-agnostic (alert tcp, any port): the seed also reaches decoders without a br
+# header (apps that call zlib on uploads explicitly) and over raw TCP labs
+# (dimasma0305: zlib.createBrotliDecompress() on :3000).
+# Sources: Node regression test test/parallel/test-zlib-invalid-input.js (commit
+# b5f41529df, release post nodejs.org/en/blog/vulnerability/october-2026-security-releases);
+# hypnguyen1209/CVE-2026-111497 exploit/poc.py (reused verbatim in
+# gh0st-nemesis lab/compare_public_pocs.py); ZeroHackOrg/node2shell-poc;
+# Ghost-Bx1/Node2Shell-CVE-2026-111497 exploit.py.
+# -----------------------------------------------------------------------------
+
+# B1 — N2S-01 (22 B "oob-base" seed / Node regression vector) and N2S-02 (23 B
+# "oob-extended" = N2S-01 + one 0x00, so this content matches both). VERBATIM.
+# FP: Ostorlab's differential probe sends it; >12 repos embed it in defensive
+# known-answer tests - a hit from your own scanner or CI is expected.
+alert tcp any any -> any any (msg:"IONSEC NODE2SHELL CVE-2026-111497 Brotli block-switch seed N2S-01/N2S-02 (Node regression vector) in client-to-server stream"; flow:established,to_server; content:"|20 00 10 41 41 41 fc ff ff 07 00 22 28 f0 0b 60 f7 f4 1f 00 00 00|"; reference:cve,2026-111497; reference:url,nodejs.org/en/blog/vulnerability/october-2026-security-releases; reference:url,github.com/Ostorlab/agent_asteroid; classtype:web-application-attack; sid:1006610; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Medium, signature_severity Major, ionsec_n2s N2S_01, ionsec_n2s N2S_02, provenance VERBATIM;)
+
+# B2 — N2S-03, VERBATIM ("oob-huffman": byte 2 = 0x18 instead of 0x10). PoC-only.
+alert tcp any any -> any any (msg:"IONSEC NODE2SHELL CVE-2026-111497 Brotli block-switch seed variant N2S-03 (oob-huffman PoC) in client-to-server stream"; flow:established,to_server; content:"|20 00 18 41 41 41 fc ff ff 07 00 22 28 f0 0b 60 f7 f4 1f 00 00 00|"; reference:cve,2026-111497; reference:url,github.com/hypnguyen1209/CVE-2026-111497; classtype:web-application-attack; sid:1006611; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence High, signature_severity Major, ionsec_n2s N2S_03, provenance VERBATIM;)
+
+# B3 — N2S-04, VERBATIM ("oob-padding": byte 9 = 0x0f instead of 0x07). PoC-only.
+alert tcp any any -> any any (msg:"IONSEC NODE2SHELL CVE-2026-111497 Brotli block-switch seed variant N2S-04 (oob-padding PoC) in client-to-server stream"; flow:established,to_server; content:"|20 00 10 41 41 41 fc ff ff 0f 00 22 28 f0 0b 60 f7 f4 1f 00 00 00|"; reference:cve,2026-111497; reference:url,github.com/hypnguyen1209/CVE-2026-111497; classtype:web-application-attack; sid:1006612; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence High, signature_severity Major, ionsec_n2s N2S_04, provenance VERBATIM;)
+
+# B4 — N2S-05, VERBATIM prefix of the naive 1,032-byte probe (ZeroHackOrg
+# node2shell.py): 1b 00 00 00 00 00 00 00 followed by 1,024 x 0x41. The content pins
+# the 8-byte header plus the first 64 'A' bytes (enough to be unique; the remaining
+# 960 bytes add nothing to the match).
+alert tcp any any -> any any (msg:"IONSEC NODE2SHELL CVE-2026-111497 naive 1032-byte Brotli probe N2S-05 (ZeroHackOrg) in client-to-server stream"; flow:established,to_server; content:"|1b 00 00 00 00 00 00 00|AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; reference:cve,2026-111497; reference:url,github.com/ZeroHackOrg/node2shell-poc; classtype:web-application-attack; sid:1006613; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Medium, signature_severity Major, ionsec_n2s N2S_05, provenance VERBATIM;)
+
+# B5 — N2S-06, VERBATIM: 22-byte fallback stream of Ghost-Bx1 exploit.py. The brief
+# rates it low value (one tool's fallback); kept cheap and low severity.
+alert tcp any any -> any any (msg:"IONSEC NODE2SHELL CVE-2026-111497 Ghost-Bx1 fallback Brotli trigger stream N2S-06 in client-to-server stream"; flow:established,to_server; content:"|1b 01 00 00 24 79 b1 6f 50 c0 03 05 00 c0 00 00 00 00 00 00 00 03|"; reference:cve,2026-111497; reference:url,github.com/Ghost-Bx1/Node2Shell-CVE-2026-111497; classtype:web-application-attack; sid:1006614; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Medium, signature_severity Minor, ionsec_n2s N2S_06, provenance VERBATIM;)
+
+# -----------------------------------------------------------------------------
+# GROUP C — trigger bytes served TO a client (fetch-trap / client-side exposure)
+# Built-in fetch() (undici), axios >= 1.0, got, node-fetch 3, needle, superagent,
+# npm (minipass-fetch) and Bun fetch decode a Content-Encoding br response whatever
+# they asked for. Imperva reproduced RCE through fetch() consuming a Brotli
+# response; Ghost-Bx1 ships a --fetch-trap mode. A WAF in front of the app never sees
+# this direction (Vercel's caveat) - an egress sensor does.
+# -----------------------------------------------------------------------------
+
+# C1 — N2S-01..04 family, VERBATIM bytes, in the server-to-client raw stream of a
+# response that declares Content-Encoding br (mixed rule, header note 3). The two
+# contents pin the invariant bytes of all four seeds; the pcre pins the two variable
+# bytes (offset 2: 0x10/0x18, offset 9: 0x07/0x0f). N2S-02 matches as a prefix.
+alert http any any -> any any (msg:"IONSEC NODE2SHELL CVE-2026-111497 Brotli block-switch seed family N2S-01..04 in a Content-Encoding br response (fetch-trap, client-side exposure)"; flow:established,to_client; content:"|41 41 41 fc ff ff|"; content:"|00 22 28 f0 0b 60 f7 f4 1f 00 00 00|"; distance:1; within:13; fast_pattern; pcre:"/\x20\x00[\x10\x18]\x41\x41\x41\xfc\xff\xff[\x07\x0f]\x00\x22\x28\xf0\x0b\x60\xf7\xf4\x1f\x00\x00\x00/"; http.header; content:"content-encoding"; nocase; pcre:"/^content-encoding[ \t]*:[^\r\n]*?(?<![\w.+-])br(?![\w.+-])/mi"; reference:cve,2026-111497; reference:url,www.imperva.com/blog/node2shell-from-brotli-data-to-remote-code-execution/; reference:url,vercel.com/kb/bulletin/node-js-security-advisory; reference:url,github.com/Ghost-Bx1/Node2Shell-CVE-2026-111497; classtype:attempted-user; sid:1006620; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Medium, signature_severity Major, ionsec_n2s N2S_01, ionsec_n2s N2S_02, ionsec_n2s N2S_03, ionsec_n2s N2S_04, provenance VERBATIM;)
+
+# -----------------------------------------------------------------------------
+# GROUP D — compromise signal
+# -----------------------------------------------------------------------------
+
+# D1 — N2S-19, VERBATIM regex; ADAPTED from dimasma0305 lab sid 9001497 (see file
+# header for attribution and delta). Output of id(1) in an HTTP response body served
+# by one of YOUR servers ($HOME_NET as the responding side, any port). dimasma0305
+# reports "Fresh id stdout on the HTTP socket"; Arkango returns "/bin/bash -c id"
+# output. $HOME_NET scoping keeps out the documentation pages your users browse,
+# which contain the same text.
+alert http $HOME_NET any -> any any (msg:"IONSEC NODE2SHELL Unix id command output in HTTP response body from a local server (CVE-2026-111497 post-exploitation marker) [adapted dimasma0305 lab sid 9001497]"; flow:established,to_client; http.response_body; content:"uid="; content:"gid="; distance:0; within:100; pcre:"/uid=\d+(?:\([^)\r\n]+\))?\s+gid=\d+(?:\([^)\r\n]+\))?/"; reference:cve,2026-111497; reference:url,github.com/dimasma0305/CVE-2026-111497-POC; reference:url,github.com/Arkango/CVE-2026-111497; classtype:successful-user; sid:1006630; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence High, signature_severity Critical, ionsec_n2s N2S_19, provenance VERBATIM;)
+
+# D2 — OPTIONAL, disabled: dimasma0305's raw-socket form (their lab wrote id output to
+# the socket of the Node service on :3000). Use it when the exploit writes output
+# outside a well-formed HTTP response that libhtp would expose as a body. Scope the
+# port list to your Node services before enabling; it double-alerts with 1006630 on
+# plain-text HTTP responses.
+# alert tcp $HOME_NET [3000,8080] -> any any (msg:"IONSEC NODE2SHELL Unix id command output on a raw server-to-client socket (CVE-2026-111497 post-exploitation marker) [dimasma0305 sid 9001497 form]"; flow:established,to_client; content:"uid="; content:"gid="; distance:0; within:100; pcre:"/uid=\d+(?:\([^)\r\n]+\))?\s+gid=\d+(?:\([^)\r\n]+\))?/"; reference:cve,2026-111497; reference:url,github.com/dimasma0305/CVE-2026-111497-POC; classtype:successful-user; sid:1006631; rev:1; metadata:created_at 2026_10_24, updated_at 2026_10_24, cve CVE_2026_111497, confidence Medium, signature_severity Critical, ionsec_n2s N2S_19, provenance VERBATIM;)
+
+# --- END ionsec-node2shell.rules — free SIDs: 1006607-1006609, 1006615-1006619, 1006621-1006629, 1006632-1006699 ---

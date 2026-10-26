@@ -1,0 +1,18 @@
+10.0.0.14 - - [24/Oct/2026:09:00:11 +0000] "GET / HTTP/1.1" 200 10413 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+10.0.0.15 - - [24/Oct/2026:09:00:41 +0000] "POST /login HTTP/1.1" 302 210 "https://www.example.org/login" "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
+10.0.0.16 - - [24/Oct/2026:09:01:02 +0000] "GET /robots.txt HTTP/1.1" 404 153 "-" "curl/8.5.0"
+10.0.0.17 - - [24/Oct/2026:09:01:44 +0000] "GET /api/status HTTP/1.1" 200 77 "-" "python-requests/2.31.0"
+10.0.0.16 - - [24/Oct/2026:09:03:14 +0000] "GET /health HTTP/1.1" 200 4 "-" "curl/8.5.0"
+10.0.0.18 - - [24/Oct/2026:09:03:20 +0000] "POST /upload HTTP/1.1" 200 33 "-" "axios/1.7.2"
+10.0.0.18 - - [24/Oct/2026:09:03:55 +0000] "GET /graphql?query=%7Bme%7Bid%7D%7D HTTP/1.1" 200 120 "-" "undici"
+10.0.0.19 - - [24/Oct/2026:09:04:10 +0000] "POST /api/v1/orders HTTP/1.1" 201 512 "-" "node"
+host:10.0.0.14	time:24/Oct/2026:09:10:00	req:GET /static/app.js HTTP/1.1	status:200	size:88211	ua:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36	accept_encoding:gzip, deflate, br	resp_content_encoding:br	sent_http_content_encoding:br
+host:10.0.0.20	time:24/Oct/2026:09:10:30	req:POST /api/v1/events HTTP/1.1	status:202	size:0	ua:node	content_encoding:gzip	content_type:application/json	content_length:812	request_length:1310
+host:10.0.0.21	time:24/Oct/2026:09:11:00	req:POST /api/v1 HTTP/1.1	status:200	size:17	ua:axios/1.7.2	content_type:application/json	content_length:10	request_length:205
+host:10.0.0.21	time:24/Oct/2026:09:11:01	req:POST /api/v1 HTTP/1.1	status:200	size:17	ua:axios/1.7.2	content_type:application/json	content_length:10	request_length:205
+host:10.0.0.21	time:24/Oct/2026:09:11:02	req:POST /api/v1 HTTP/1.1	status:200	size:17	ua:axios/1.7.2	content_type:application/json	content_length:10	request_length:205
+host:10.0.0.22	time:24/Oct/2026:09:12:00	req:POST /upload HTTP/1.1	status:200	size:0	ua:Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0	content_type:multipart/form-data	content_length:25281929	request_length:25282400
+host:10.0.0.23	time:24/Oct/2026:09:12:30	req:POST / HTTP/1.1	status:200	size:2	ua:curl/8.5.0	content_type:application/octet-stream	content_length:64
+host:10.0.0.24	time:24/Oct/2026:09:13:00	req:POST /api/notes HTTP/1.1	status:200	size:5	ua:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36	content_length:27	body:{"title":"hello","text":"world"}
+{"remote_addr": "10.0.0.30", "time_iso8601": "2026-10-24T09:20:00+00:00", "request": "GET /app.css HTTP/1.1", "status": 200, "body_bytes_sent": 5120, "http_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36", "http_accept_encoding": "gzip, deflate, br", "sent_http_content_encoding": "br"}
+{"level": "info", "ts": 1761297600.1, "logger": "http.log.access", "request": {"remote_ip": "10.0.0.31", "method": "GET", "uri": "/index.html", "headers": {"User-Agent": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"], "Accept-Encoding": ["gzip, deflate, br"]}}, "status": 200, "size": 2048, "resp_headers": {"Content-Encoding": ["br"], "Content-Type": ["text/html"]}}
